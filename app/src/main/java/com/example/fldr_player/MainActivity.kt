@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.fldr_player.ui.theme.FLDRplayerTheme
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 class MainActivity : ComponentActivity() {
 
@@ -51,6 +53,8 @@ class MainActivity : ComponentActivity() {
 fun FLDRHome(modifier: Modifier = Modifier) {
 
     val context = LocalContext.current
+    val viewModel: FLDRViewModel = viewModel()
+
 
     var selectedFolder by remember {
         mutableStateOf<String?>(null)
@@ -58,6 +62,10 @@ fun FLDRHome(modifier: Modifier = Modifier) {
 
     var audioFiles by remember {
         mutableStateOf<List<AudioFile>>(emptyList())
+    }
+
+    var selectedMetadata by remember {
+        mutableStateOf<TrackMetadata?>(null)
     }
 
     val folderPicker = rememberLauncherForActivityResult(
@@ -75,9 +83,9 @@ fun FLDRHome(modifier: Modifier = Modifier) {
 
             selectedFolder = uri.toString()
 
-            val scanner = MusicScanner(context)
-
-            audioFiles = scanner.scan(uri.toString())
+            viewModel.scanFolder(uri.toString()) { files ->
+                audioFiles = files
+            }
         }
     }
 
@@ -102,19 +110,33 @@ fun FLDRHome(modifier: Modifier = Modifier) {
         )
 
         LazyColumn(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
         ) {
 
             items(audioFiles) { audioFile ->
 
-                Text(
-                    text = audioFile.name,
-                    modifier = Modifier.padding(
-                        horizontal = 16.dp,
-                        vertical = 8.dp
-                    )
-                )
+                Button(
+                    onClick = {
+                        viewModel.readMetadata(audioFile) { metadata ->
+                            selectedMetadata = metadata
+                        }
+                    }
+                ) {
+                    Text(audioFile.name)
+                }
             }
+        }
+        selectedMetadata?.let { metadata ->
+            Text("Title: ${metadata.title ?: "Unknown"}")
+            Text("Artist: ${metadata.artist ?: "Unknown"}")
+            Text("Album: ${metadata.album ?: "Unknown"}")
+            Text("Album Artist: ${metadata.albumArtist ?: "Unknown"}")
+            Text("Track: ${metadata.trackNumber ?: "Unknown"}")
+            Text("Disc: ${metadata.discNumber ?: "Unknown"}")
+            Text("Year: ${metadata.year ?: "Unknown"}")
+            Text("Genre: ${metadata.genre ?: "Unknown"}")
         }
     }
 }
