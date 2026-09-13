@@ -50,6 +50,9 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(libs.androidx.documentfile)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
-
+    //noinspection UseTomlInstead
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
+    //noinspection UseTomlInstead
+    implementation("androidx.media3:media3-common:1.11.1")
 
 }

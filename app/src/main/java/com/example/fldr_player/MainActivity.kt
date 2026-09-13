@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 
 
 
@@ -200,19 +201,46 @@ fun FLDRHome(modifier: Modifier = Modifier) {
         mutableStateOf<List<String>>(emptyList())
     }
 
-    fun loadFolder(uri: String, addToHistory: Boolean = true) {
+    var folderLoadId by remember { mutableStateOf(0) }
+
+    val musicPlayer = remember {
+        MusicPlayer(context)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            musicPlayer.release()
+        }
+    }
+
+    fun loadFolder(
+        uri: String,
+        addToHistory: Boolean = true
+    ) {
+        folderLoadId += 1
+
+        val thisLoadId = folderLoadId
+
         if (addToHistory) {
             folderHistory = folderHistory + uri
         }
 
         currentFolder = uri
 
+        // Clear the old folder immediately
+        musicFolders = emptyList()
+        audioFiles = emptyList()
+
         viewModel.scanFolders(uri) { folders ->
-            musicFolders = folders
+            if (thisLoadId == folderLoadId) {
+                musicFolders = folders
+            }
         }
 
         viewModel.scanSongs(uri) { files ->
-            audioFiles = files
+            if (thisLoadId == folderLoadId) {
+                audioFiles = files
+            }
         }
     }
 
@@ -347,11 +375,6 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "Folder",
-                                modifier = Modifier.padding(end = 12.dp)
-                            )
-
-                            Text(
                                 text = folder.name,
                             )
                         }
@@ -368,6 +391,8 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                             viewModel = viewModel,
                             onClick = {
                                 selectedAudioFile = audioFile
+
+                                musicPlayer.play(audioFile.uri)
 
                                 viewModel.readMetadata(audioFile) { metadata ->
                                     selectedMetadata = metadata
@@ -441,9 +466,13 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                         )
                         Text(
                             text = metadata.artist ?: "Unknown",
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center
                         )
                         Text(
                             text = metadata.album ?: "Unknown",
+                            modifier = Modifier.fillMaxWidth(),
+                            textAlign = TextAlign.Center
                         )
                         //Text("Title: ${metadata.title ?: "Unknown"}")
                         //Text("Artist: ${metadata.artist ?: "Unknown"}")
