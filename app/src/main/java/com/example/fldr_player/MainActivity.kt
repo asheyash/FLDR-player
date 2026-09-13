@@ -1,39 +1,43 @@
 package com.example.fldr_player
 
 import android.content.Intent
+import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.example.fldr_player.ui.theme.FLDRplayerTheme
-import android.os.Bundle
-
 
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
         setContent {
             FLDRplayerTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                Scaffold(
+                    modifier = Modifier.fillMaxSize()
+                ) { innerPadding ->
                     FLDRHome(
                         modifier = Modifier.padding(innerPadding)
                     )
@@ -45,17 +49,23 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun FLDRHome(modifier: Modifier = Modifier) {
+
     val context = LocalContext.current
 
-    var selectedFolder by rememberSaveable {
+    var selectedFolder by remember {
         mutableStateOf<String?>(null)
+    }
+
+    var audioFiles by remember {
+        mutableStateOf<List<AudioFile>>(emptyList())
     }
 
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
+
         if (uri != null) {
-            // Remember permission to read this folder after restarting FLDR.
+
             val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
 
             context.contentResolver.takePersistableUriPermission(
@@ -64,29 +74,48 @@ fun FLDRHome(modifier: Modifier = Modifier) {
             )
 
             selectedFolder = uri.toString()
+
+            val scanner = MusicScanner(context)
+
+            audioFiles = scanner.scan(uri.toString())
         }
     }
 
     Column(
         modifier = modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.Top
     ) {
-        Text("FLDR-player")
 
         Button(
             onClick = {
                 folderPicker.launch(null)
-            }
+            },
+            modifier = Modifier.padding(16.dp)
         ) {
             Text("Choose Music Folder")
         }
 
-        if (selectedFolder != null) {
-            Text(
-                text = "Music folder selected!",
-                modifier = Modifier.padding(top = 16.dp)
-            )
+        Text(
+            text = "${audioFiles.size} audio files found",
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize()
+        ) {
+
+            items(audioFiles) { audioFile ->
+
+                Text(
+                    text = audioFile.name,
+                    modifier = Modifier.padding(
+                        horizontal = 16.dp,
+                        vertical = 8.dp
+                    )
+                )
+            }
         }
     }
 }
+
