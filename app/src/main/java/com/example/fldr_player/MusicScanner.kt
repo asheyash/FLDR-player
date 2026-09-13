@@ -1,9 +1,9 @@
 package com.example.fldr_player
 
 import android.content.Context
-import android.net.Uri
-import androidx.documentfile.provider.DocumentFile
+import android.provider.DocumentsContract
 import androidx.core.net.toUri
+import androidx.documentfile.provider.DocumentFile
 
 class MusicScanner(private val context: Context) {
 
@@ -17,27 +17,34 @@ class MusicScanner(private val context: Context) {
         "aac"
     )
 
-    fun scan(uriString: String): List<AudioFile> {
-        val uri = uriString.toUri()
-
-        val root = DocumentFile.fromTreeUri(context, uri)
+    fun scanFolders(uriString: String): List<MusicFolder> {
+        val root = getDocumentFile(uriString)
             ?: return emptyList()
 
-        val results = mutableListOf<AudioFile>()
+        val results = mutableListOf<MusicFolder>()
 
-        scanDirectory(root, results)
+        for (file in root.listFiles()) {
+            if (file.isDirectory) {
+                results.add(
+                    MusicFolder(
+                        name = file.name ?: "Unknown",
+                        uri = file.uri.toString()
+                    )
+                )
+            }
+        }
 
         return results
     }
 
-    private fun scanDirectory(
-        directory: DocumentFile,
-        results: MutableList<AudioFile>
-    ) {
-        for (file in directory.listFiles()) {
-            if (file.isDirectory) {
-                scanDirectory(file, results)
-            } else if (file.isFile && isAudioFile(file)) {
+    fun scanSongs(uriString: String): List<AudioFile> {
+        val root = getDocumentFile(uriString)
+            ?: return emptyList()
+
+        val results = mutableListOf<AudioFile>()
+
+        for (file in root.listFiles()) {
+            if (file.isFile && isAudioFile(file)) {
                 results.add(
                     AudioFile(
                         name = file.name ?: "Unknown",
@@ -45,6 +52,18 @@ class MusicScanner(private val context: Context) {
                     )
                 )
             }
+        }
+
+        return results
+    }
+
+    private fun getDocumentFile(uriString: String): DocumentFile? {
+        val uri = uriString.toUri()
+
+        return if (DocumentsContract.isTreeUri(uri)) {
+            DocumentFile.fromTreeUri(context, uri)
+        } else {
+            DocumentFile.fromSingleUri(context, uri)
         }
     }
 

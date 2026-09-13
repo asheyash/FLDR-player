@@ -11,6 +11,7 @@ class MetadataReader(private val context: Context) {
         return try {
             val uri = Uri.parse(uriString)
             retriever.setDataSource(context, uri)
+            val artwork = retriever.embeddedPicture
 
             TrackMetadata(
                 title = retriever.extractMetadata(
@@ -40,6 +41,7 @@ class MetadataReader(private val context: Context) {
                 discNumber = retriever.extractMetadata(
                     MediaMetadataRetriever.METADATA_KEY_DISC_NUMBER
                 )?.substringBefore("/")?.toIntOrNull(),
+                artwork = artwork
             )
         } finally {
             retriever.release()

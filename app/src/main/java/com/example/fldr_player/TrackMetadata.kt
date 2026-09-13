@@ -9,5 +9,6 @@ data class TrackMetadata(
     val discNumber: Int?,
     val year: String?,
     val genre: String?,
-    val duration: Long?
+    val duration: Long?,
+    val artwork: ByteArray?
 )
