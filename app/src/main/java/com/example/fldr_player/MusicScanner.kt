@@ -61,7 +61,6 @@ class MusicScanner(private val context: Context) {
 
         return results
     }
-
     private fun getDocumentFile(uriString: String): DocumentFile? {
         val uri = uriString.toUri()
 

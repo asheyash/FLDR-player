@@ -1,5 +1,6 @@
 package com.example.fldr_player
 
+import androidx.compose.material3.ExperimentalMaterial3Api
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -41,21 +42,36 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Slider
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
 
 
 
 
 
+fun formatTime(milliseconds: Long): String {
+    val totalSeconds = milliseconds / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+
+    return "%d:%02d".format(minutes, seconds)
+}
 
 
 class MainActivity : ComponentActivity() {
@@ -82,10 +98,16 @@ class MainActivity : ComponentActivity() {
 fun SongRow(
     audioFile: AudioFile,
     viewModel: FLDRViewModel,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onAddToCurrentQueue: () -> Unit,
+    onAddToNewQueue: () -> Unit
 ) {
     var metadata by remember(audioFile.uri) {
         mutableStateOf<TrackMetadata?>(null)
+    }
+
+    var menuOpen by remember {
+        mutableStateOf(false)
     }
 
     androidx.compose.runtime.LaunchedEffect(audioFile.uri) {
@@ -97,7 +119,11 @@ fun SongRow(
     val artworkBitmap = remember(metadata?.artwork) {
         metadata?.artwork?.let { artwork ->
             BitmapFactory
-                .decodeByteArray(artwork, 0, artwork.size)
+                .decodeByteArray(
+                    artwork,
+                    0,
+                    artwork.size
+                )
                 ?.asImageBitmap()
         }
     }
@@ -162,11 +188,119 @@ fun SongRow(
                 style = MaterialTheme.typography.bodySmall
             )
         }
+
+        IconButton(
+            onClick = {
+                menuOpen = true
+            }
+        ) {
+            Text("⋮")
+        }
+    }
+
+    DropdownMenu(
+        expanded = menuOpen,
+        onDismissRequest = {
+            menuOpen = false
+        }
+    ) {
+        DropdownMenuItem(
+            text = {
+                Text("Add to current queue")
+            },
+            onClick = {
+                menuOpen = false
+                onAddToCurrentQueue()
+            }
+        )
+
+        DropdownMenuItem(
+            text = {
+                Text("Add to new queue")
+            },
+            onClick = {
+                menuOpen = false
+                onAddToNewQueue()
+            }
+        )
     }
 
     HorizontalDivider()
 }
 
+@Composable
+fun SongSkeletonRow() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = 8.dp,
+                vertical = 8.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(
+                    MaterialTheme.colorScheme.surfaceVariant
+                )
+        )
+
+        Column(
+            modifier = Modifier
+                .padding(start = 12.dp)
+                .weight(1f)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.65f)
+                    .height(16.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant
+                    )
+            )
+
+            Spacer(
+                modifier = Modifier.height(7.dp)
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.4f)
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant
+                    )
+            )
+
+            Spacer(
+                modifier = Modifier.height(6.dp)
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.5f)
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(
+                        MaterialTheme.colorScheme.surfaceVariant
+                    )
+            )
+        }
+
+        Spacer(
+            modifier = Modifier.size(48.dp)
+        )
+    }
+
+    HorizontalDivider()
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FLDRHome(modifier: Modifier = Modifier) {
 
@@ -194,6 +328,29 @@ fun FLDRHome(modifier: Modifier = Modifier) {
         mutableStateOf(0)
     }
 
+    var songMetadata by remember {
+        mutableStateOf<Map<String, TrackMetadata>>(emptyMap())
+    }
+
+    var songsLoading by remember {
+        mutableStateOf(false)
+    }
+
+    var metadataLoadedCount by remember {
+        mutableStateOf(0)
+    }
+
+    var currentPosition by remember { mutableStateOf(0L) }
+    var totalDuration by remember { mutableStateOf(0L) }
+
+    val progress =
+        if (totalDuration > 0L) {
+            (currentPosition.toFloat() / totalDuration.toFloat())
+                .coerceIn(0f, 1f)
+        } else {
+            0f
+        }
+
     var currentFolder by remember { mutableStateOf<String?>(null) }
     var musicFolders by remember { mutableStateOf<List<MusicFolder>>(emptyList()) }
 
@@ -206,6 +363,17 @@ fun FLDRHome(modifier: Modifier = Modifier) {
     val musicPlayer = remember {
         MusicPlayer(context)
     }
+
+    LaunchedEffect(selectedAudioFile?.uri) {
+        while (true) {
+            currentPosition = musicPlayer.getCurrentPosition()
+            totalDuration = musicPlayer.getDuration()
+
+            delay(500)
+        }
+    }
+
+
 
     DisposableEffect(Unit) {
         onDispose {
@@ -240,6 +408,26 @@ fun FLDRHome(modifier: Modifier = Modifier) {
         viewModel.scanSongs(uri) { files ->
             if (thisLoadId == folderLoadId) {
                 audioFiles = files
+                songMetadata = emptyMap()
+                metadataLoadedCount = 0
+                songsLoading = files.isNotEmpty()
+
+                if (files.isEmpty()) {
+                    songsLoading = false
+                }
+
+                files.forEach { audioFile ->
+                    viewModel.readMetadata(audioFile) { metadata ->
+                        songMetadata = songMetadata + (
+                                audioFile.uri to metadata
+                                )
+                        metadataLoadedCount += 1
+
+                        if (metadataLoadedCount == files.size) {
+                            songsLoading = false
+                        }
+                    }
+                }
             }
         }
     }
@@ -295,33 +483,25 @@ fun FLDRHome(modifier: Modifier = Modifier) {
         ) {
 
             if (selectedTab == 1) {
-                if (currentFolder != null) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                horizontal = 16.dp,
-                                vertical = 12.dp
-                            ),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Folder View",
-                            modifier = Modifier.padding(end = 12.dp)
-                        )
 
-                        Text(
-                            text = "Current Folder"
+                Text(
+                    text = "Folder View",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = 16.dp,
+                            vertical = 12.dp
                         )
-                    }
+                )
 
-                    HorizontalDivider()
-                }
+                HorizontalDivider()
+
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
                 ) {
+                    // Parent-folder entry
                     if (
                         currentFolder != null &&
                         selectedFolder != null &&
@@ -331,6 +511,10 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .padding(
+                                        horizontal = 8.dp,
+                                        vertical = 14.dp
+                                    )
                                     .clickable {
                                         if (folderHistory.size > 1) {
                                             val newHistory = folderHistory.dropLast(1)
@@ -343,25 +527,34 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                                                 addToHistory = false
                                             )
                                         }
-                                    }
-                                    .padding(
-                                        horizontal = 8.dp,
-                                        vertical = 14.dp
-                                    ),
+                                    },
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
                                     text = "../",
+                                    modifier = Modifier.weight(1f)
+                                )
+
+                                // Empty space matching the folder menu button
+                                Spacer(
+                                    modifier = Modifier.size(48.dp)
                                 )
                             }
+
                             HorizontalDivider()
                         }
                     }
 
+                    // Normal folders
                     items(
                         items = musicFolders,
                         key = { it.uri }
                     ) { folder ->
+
+                        var folderMenuOpen by remember(folder.uri) {
+                            mutableStateOf(false)
+                        }
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -376,30 +569,101 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                         ) {
                             Text(
                                 text = folder.name,
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            IconButton(
+                                onClick = {
+                                    folderMenuOpen = true
+                                }
+                            ) {
+                                Text("⋮")
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = folderMenuOpen,
+                            onDismissRequest = {
+                                folderMenuOpen = false
+                            }
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text("Add to current queue")
+                                },
+                                onClick = {
+                                    folderMenuOpen = false
+
+                                    // Folder queue logic will go here
+                                }
+                            )
+
+                            DropdownMenuItem(
+                                text = {
+                                    Text("Add to new queue")
+                                },
+                                onClick = {
+                                    folderMenuOpen = false
+
+                                    // Folder queue logic will go here
+                                }
                             )
                         }
 
                         HorizontalDivider()
                     }
 
-                    items(
-                        items = audioFiles,
-                        key = { it.uri }
-                    ) { audioFile ->
-                        SongRow(
-                            audioFile = audioFile,
-                            viewModel = viewModel,
-                            onClick = {
-                                selectedAudioFile = audioFile
+                    // Songs
+                    if (songsLoading) {
+                        items(
+                            count = audioFiles.size
+                        ) {
+                            SongSkeletonRow()
+                        }
+                    } else {
+                        items(
+                            items = audioFiles.sortedWith(
+                                compareBy<AudioFile> {
+                                    val trackNumber =
+                                        songMetadata[it.uri]?.trackNumber
 
-                                musicPlayer.play(audioFile.uri)
-
-                                viewModel.readMetadata(audioFile) { metadata ->
-                                    selectedMetadata = metadata
-                                    selectedTab = 0
+                                    if (
+                                        trackNumber != null &&
+                                        trackNumber > 0
+                                    ) {
+                                        0
+                                    } else {
+                                        1
+                                    }
+                                }.thenBy {
+                                    songMetadata[it.uri]?.trackNumber
+                                        ?: Int.MAX_VALUE
                                 }
-                            }
-                        )
+                            ),
+                            key = { it.uri }
+                        ) { audioFile ->
+
+                            SongRow(
+                                audioFile = audioFile,
+                                viewModel = viewModel,
+                                onClick = {
+                                    selectedAudioFile = audioFile
+                                    musicPlayer.play(audioFile.uri)
+
+                                    viewModel.readMetadata(audioFile) { metadata ->
+                                        selectedMetadata = metadata
+                                    }
+
+                                    selectedTab = 0
+                                },
+                                onAddToCurrentQueue = {
+                                    // Queue logic will go here
+                                },
+                                onAddToNewQueue = {
+                                    // Queue logic will go here
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -454,34 +718,85 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                                 Image(
                                     bitmap = it,
                                     contentDescription = "Album artwork",
-                                    modifier = Modifier.size(400.dp)
+                                    modifier = Modifier
+                                        .size(400.dp)
+                                        .offset(y = (-38).dp)
+                                        .clickable{
+                                            musicPlayer.togglePlayPause()
+                                        }
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.size(20.dp))
+                        Spacer(modifier = Modifier.size(48.dp))
                         Text(
                             text = metadata.title ?: "Unknown",
                             modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
                         )
                         Text(
                             text = metadata.artist ?: "Unknown",
                             modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium,
                         )
                         Text(
                             text = metadata.album ?: "Unknown",
                             modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
+                            style = MaterialTheme.typography.bodyMedium,
                         )
-                        //Text("Title: ${metadata.title ?: "Unknown"}")
-                        //Text("Artist: ${metadata.artist ?: "Unknown"}")
-                        //Text("Album: ${metadata.album ?: "Unknown"}")
-                        //Text("Album Artist: ${metadata.albumArtist ?: "Unknown"}")
-                        //Text("Track: ${metadata.trackNumber ?: "Unknown"}")
-                        //Text("Disc: ${metadata.discNumber ?: "Unknown"}")
-                        //Text("Year: ${metadata.year ?: "Unknown"}")
-                        //Text("Genre: ${metadata.genre ?: "Unknown"}")
+
+                        Spacer(modifier = Modifier.size(28.dp))
+                        Row(
+                            modifier = Modifier.width(400.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = formatTime(currentPosition),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.width(42.dp)
+                            )
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            Slider(
+                                value = progress,
+                                onValueChange = { newProgress ->
+                                    val newPosition =
+                                        (newProgress * totalDuration.toFloat()).toLong()
+
+                                    currentPosition = newPosition
+                                    musicPlayer.seekTo(newPosition)
+                                },
+                                valueRange = 0f..1f,
+                                modifier = Modifier.weight(1f),
+                                thumb = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(14.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primary)
+                                    )
+                                },
+                                track = { sliderState ->
+                                    SliderDefaults.Track(
+                                        sliderState = sliderState,
+                                        modifier = Modifier.height(4.dp)
+                                    )
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            Text(
+                                text = formatTime(totalDuration),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.width(42.dp),
+                                textAlign = TextAlign.End
+                            )
+                        }
                     }
                 }
             }
