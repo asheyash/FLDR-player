@@ -24,10 +24,15 @@ class MusicScanner(private val context: Context) {
         val results = mutableListOf<MusicFolder>()
 
         for (file in root.listFiles()) {
-            if (file.isDirectory) {
+            val name = file.name ?: continue
+
+            if (
+                file.isDirectory &&
+                !name.startsWith(".")
+            ) {
                 results.add(
                     MusicFolder(
-                        name = file.name ?: "Unknown",
+                        name = name,
                         uri = file.uri.toString()
                     )
                 )

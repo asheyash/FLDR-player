@@ -41,6 +41,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.LaunchedEffect
 
 
 
@@ -66,6 +75,95 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+}
+
+@Composable
+fun SongRow(
+    audioFile: AudioFile,
+    viewModel: FLDRViewModel,
+    onClick: () -> Unit
+) {
+    var metadata by remember(audioFile.uri) {
+        mutableStateOf<TrackMetadata?>(null)
+    }
+
+    androidx.compose.runtime.LaunchedEffect(audioFile.uri) {
+        viewModel.readMetadata(audioFile) { result ->
+            metadata = result
+        }
+    }
+
+    val artworkBitmap = remember(metadata?.artwork) {
+        metadata?.artwork?.let { artwork ->
+            BitmapFactory
+                .decodeByteArray(artwork, 0, artwork.size)
+                ?.asImageBitmap()
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(
+                horizontal = 8.dp,
+                vertical = 8.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (artworkBitmap != null) {
+            Image(
+                bitmap = artworkBitmap,
+                contentDescription = "Album artwork",
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(6.dp))
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color.DarkGray),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "♫",
+                    color = Color.White
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .padding(start = 12.dp)
+                .weight(1f)
+        ) {
+            Text(
+                text = metadata?.title
+                    ?: audioFile.name,
+                maxLines = 1
+            )
+
+            Text(
+                text = metadata?.artist
+                    ?: "Unknown artist",
+                maxLines = 1,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            Text(
+                text = metadata?.album
+                    ?: "Unknown album",
+                maxLines = 1,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+
+    HorizontalDivider()
 }
 
 @Composable
@@ -265,32 +363,18 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                         items = audioFiles,
                         key = { it.uri }
                     ) { audioFile ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    selectedAudioFile = audioFile
+                        SongRow(
+                            audioFile = audioFile,
+                            viewModel = viewModel,
+                            onClick = {
+                                selectedAudioFile = audioFile
 
-                                    viewModel.readMetadata(audioFile) { metadata ->
-                                        selectedMetadata = metadata
-                                        selectedTab = 0
-                                    }
+                                viewModel.readMetadata(audioFile) { metadata ->
+                                    selectedMetadata = metadata
+                                    selectedTab = 0
                                 }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "♫",
-                                modifier = Modifier.padding(end = 12.dp)
-                            )
-
-                            Text(
-                                text = audioFile.name,
-                                modifier = Modifier.padding(start = 12.dp)
-                            )
-                        }
-
-                        HorizontalDivider()
+                            }
+                        )
                     }
                 }
             }
@@ -345,7 +429,7 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                                 Image(
                                     bitmap = it,
                                     contentDescription = "Album artwork",
-                                    modifier = Modifier.size(300.dp)
+                                    modifier = Modifier.size(400.dp)
                                 )
                             }
                         }
@@ -382,22 +466,31 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                     selectedTab = 0
                 }
             ) {
-                Text("▶")
+                Text("Play")
             }
 
             Button(
                 onClick = {
-                    selectedTab = 1
+                    if (selectedTab == 1 && selectedFolder != null) {
+                        folderHistory = listOf(selectedFolder!!)
+
+                        loadFolder(
+                            uri = selectedFolder!!,
+                            addToHistory = false
+                        )
+                    } else {
+                        selectedTab = 1
+                    }
                 }
             ) {
-                Text("♫")
+                Text("Lib")
             }
             Button(
                 onClick = {
                     selectedTab = 2
                 }
             ) {
-                Text("|||")
+                Text("Set")
             }
         }
 
