@@ -119,4 +119,13 @@ class FLDRViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
     }
+    fun replaceQueueWithSong(
+        audioFile: AudioFile,
+        onComplete: (List<AudioFile>) -> Unit = {}
+    ) {
+        playbackQueue.clear()
+        playbackQueue.addSong(audioFile)
+
+        onComplete(listOf(audioFile))
+    }
 }

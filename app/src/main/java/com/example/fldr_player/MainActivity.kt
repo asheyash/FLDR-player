@@ -75,6 +75,30 @@ import androidx.compose.ui.unit.IntOffset
 import kotlin.math.roundToInt
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import androidx.compose.ui.unit.sp
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDp
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Album
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+
+
 
 fun formatTime(milliseconds: Long): String {
     val totalSeconds = milliseconds / 1000
@@ -355,6 +379,8 @@ fun FLDRHome(modifier: Modifier = Modifier) {
         mutableStateOf(0)
     }
 
+    var isPlaying by remember { mutableStateOf(false) }
+
     var repeatMode by remember {
         mutableStateOf(Player.REPEAT_MODE_ALL)
     }
@@ -376,6 +402,8 @@ fun FLDRHome(modifier: Modifier = Modifier) {
     var metadataLoadedCount by remember {
         mutableStateOf(0)
     }
+
+
 
     var currentPosition by remember { mutableStateOf(0L) }
     var totalDuration by remember { mutableStateOf(0L) }
@@ -403,32 +431,40 @@ fun FLDRHome(modifier: Modifier = Modifier) {
     }
 
     LaunchedEffect(queueSongs) {
+        musicPlayer.updateQueue(queueSongs)
+    }
+
+    LaunchedEffect(queueSongs) {
         while (true) {
             currentPosition = musicPlayer.getCurrentPosition()
             totalDuration = musicPlayer.getDuration()
             repeatMode = musicPlayer.getRepeatMode()
+            isPlaying = musicPlayer.isPlaying()
 
             val currentIndex = musicPlayer.getCurrentMediaItemIndex()
+            val currentUri = musicPlayer.getCurrentMediaItemUri()
 
             if (
-                currentIndex != -1 &&
-                currentIndex != lastQueueIndex &&
-                currentIndex < queueSongs.size
+                currentUri != null &&
+                currentUri != selectedAudioFile?.uri
             ) {
-                lastQueueIndex = currentIndex
+                val currentAudioFile = queueSongs.firstOrNull {
+                    it.uri == currentUri
+                }
 
-                val currentAudioFile = queueSongs[currentIndex]
+                if (currentAudioFile != null) {
+                    selectedAudioFile = currentAudioFile
 
-                selectedAudioFile = currentAudioFile
-
-                viewModel.readMetadata(currentAudioFile) { metadata ->
-                    selectedMetadata = metadata
+                    viewModel.readMetadata(currentAudioFile) { metadata ->
+                        selectedMetadata = metadata
+                    }
                 }
             }
 
             delay(500)
         }
     }
+
     LaunchedEffect(selectedAudioFile?.uri) {
         if (artworkWaitingForNewSong && selectedAudioFile != null) {
             artworkOffset.snapTo(artworkIncomingOffset)
@@ -441,6 +477,8 @@ fun FLDRHome(modifier: Modifier = Modifier) {
             artworkWaitingForNewSong = false
         }
     }
+
+
 
 
 
@@ -498,6 +536,27 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                     }
                 }
             }
+        }
+    }
+
+    BackHandler {
+        if (
+            selectedTab == 1 &&
+            currentFolder != null &&
+            selectedFolder != null &&
+            folderHistory.size > 1
+        ) {
+            val newHistory = folderHistory.dropLast(1)
+            val previousFolder = newHistory.last()
+
+            folderHistory = newHistory
+
+            loadFolder(
+                uri = previousFolder,
+                addToHistory = false
+            )
+        } else {
+            selectedTab = 0
         }
     }
 
@@ -674,7 +733,23 @@ fun FLDRHome(modifier: Modifier = Modifier) {
 
                                             viewModel.replaceQueueWithFolderRecursively(
                                                 uri = folder.uri
-                                            ) {
+                                            ) { newQueue ->
+
+                                                musicPlayer.replaceQueue(
+                                                    audioFiles = newQueue,
+                                                    selectedIndex = 0
+                                                )
+
+                                                selectedAudioFile = newQueue.firstOrNull()
+                                                selectedMetadata = null
+
+                                                newQueue.firstOrNull()?.let { audioFile ->
+                                                    viewModel.readMetadata(audioFile) { metadata ->
+                                                        selectedMetadata = metadata
+                                                    }
+                                                }
+
+                                                selectedTab = 0
                                             }
                                         }
                                     )
@@ -728,6 +803,7 @@ fun FLDRHome(modifier: Modifier = Modifier) {
 
                                         if (selectedIndex != -1) {
                                             selectedAudioFile = audioFile
+                                            selectedMetadata = null
 
                                             musicPlayer.playQueue(
                                                 audioFiles = folderSongs,
@@ -746,13 +822,20 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                                     viewModel.addToQueue(audioFile)
                                 },
                                 onAddToNewQueue = {
-                                    val folderUri = currentFolder
+                                    viewModel.replaceQueueWithSong(audioFile) { newQueue ->
+                                        musicPlayer.replaceQueue(
+                                            audioFiles = newQueue,
+                                            selectedIndex = 0
+                                        )
 
-                                    if (folderUri != null) {
-                                        viewModel.replaceQueueWithFolder(
-                                            uri = folderUri
-                                        ) {
+                                        selectedAudioFile = audioFile
+                                        selectedMetadata = null
+
+                                        viewModel.readMetadata(audioFile) { metadata ->
+                                            selectedMetadata = metadata
                                         }
+
+                                        selectedTab = 0
                                     }
                                 }
                             )
@@ -797,221 +880,372 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    selectedMetadata?.let { metadata ->
+                    if (selectedMetadata?.artwork != null) {
 
-                        metadata.artwork?.let { artwork ->
-                            val bitmap = remember(artwork) {
-                                BitmapFactory.decodeByteArray(
-                                    artwork,
-                                    0,
-                                    artwork.size
-                                )?.asImageBitmap()
-                            }
-                            bitmap?.let {
-                                Image(
-                                    bitmap = it,
-                                    contentDescription = "Album artwork",
-                                    modifier = Modifier
-                                        .size(400.dp)
-                                        .offset(y = (-38).dp)
-                                        .offset {
-                                            IntOffset(
-                                                x = artworkOffset.value.roundToInt(),
-                                                y = 0
-                                            )
-                                        }
-                                        .pointerInput(Unit) {
-                                            detectHorizontalDragGestures(
-                                                onHorizontalDrag = { _, dragAmount ->
-                                                    artworkDragAmount += dragAmount
+                        val artwork = selectedMetadata!!.artwork!!
 
-                                                    artworkSwipeDirection =
-                                                        if (artworkDragAmount < 0f) -1 else 1
+                        val bitmap = remember(artwork) {
+                            BitmapFactory.decodeByteArray(
+                                artwork,
+                                0,
+                                artwork.size
+                            )?.asImageBitmap()
+                        }
 
-                                                    artworkScope.launch {
-                                                        artworkOffset.snapTo(
-                                                            artworkDragAmount.coerceIn(-30f, 30f)
-                                                        )
-                                                    }
-                                                },
-                                                onDragEnd = {
-                                                    artworkScope.launch {
-                                                        when {
-                                                            artworkDragAmount < -100f -> {
-                                                                artworkSwipeDirection = -1
+                        bitmap?.let {
+                            Image(
+                                bitmap = it,
+                                contentDescription = "Album artwork",
+                                modifier = Modifier
+                                    .size(400.dp)
+                                    .offset(y = (-38).dp)
+                                    .offset {
+                                        IntOffset(
+                                            x = artworkOffset.value.roundToInt(),
+                                            y = 0
+                                        )
+                                    }
+                                    .pointerInput(Unit) {
+                                        detectHorizontalDragGestures(
+                                            onHorizontalDrag = { _, dragAmount ->
+                                                artworkDragAmount += dragAmount
 
-                                                                artworkOffset.animateTo(
-                                                                    targetValue = -30f,
-                                                                    animationSpec = tween(180)
-                                                                )
+                                                artworkSwipeDirection =
+                                                    if (artworkDragAmount < 0f) -1 else 1
 
-                                                                artworkWaitingForNewSong = true
-                                                                musicPlayer.skipToNext()
-                                                            }
+                                                artworkScope.launch {
+                                                    artworkOffset.snapTo(
+                                                        artworkDragAmount.coerceIn(-30f, 30f)
+                                                    )
+                                                }
+                                            },
+                                            onDragEnd = {
+                                                artworkScope.launch {
+                                                    when {
+                                                        artworkDragAmount < -100f -> {
+                                                            artworkSwipeDirection = -1
 
-                                                            artworkDragAmount > 100f -> {
-                                                                artworkSwipeDirection = 1
+                                                            artworkOffset.animateTo(
+                                                                targetValue = -30f,
+                                                                animationSpec = tween(180)
+                                                            )
 
-                                                                artworkOffset.animateTo(
-                                                                    targetValue = 30f,
-                                                                    animationSpec = tween(180)
-                                                                )
-
-                                                                artworkWaitingForNewSong = true
-                                                                musicPlayer.skipToPrevious()
-                                                            }
-
-                                                            else -> {
-                                                                artworkOffset.animateTo(
-                                                                    targetValue = 0f,
-                                                                    animationSpec = tween(180)
-                                                                )
-                                                            }
+                                                            artworkWaitingForNewSong = true
+                                                            musicPlayer.skipToNext()
                                                         }
 
-                                                        artworkDragAmount = 0f
-                                                        artworkSwipeDirection = 0
-                                                    }
-                                                },
-                                                onDragCancel = {
-                                                    artworkScope.launch {
-                                                        artworkDragAmount = 0f
+                                                        artworkDragAmount > 100f -> {
+                                                            artworkSwipeDirection = 1
 
-                                                        artworkOffset.animateTo(
-                                                            targetValue = 0f,
-                                                            animationSpec = tween(180)
-                                                        )
+                                                            artworkOffset.animateTo(
+                                                                targetValue = 30f,
+                                                                animationSpec = tween(180)
+                                                            )
 
-                                                        artworkSwipeDirection = 0
+                                                            artworkWaitingForNewSong = true
+                                                            musicPlayer.skipToPrevious()
+                                                        }
+
+                                                        else -> {
+                                                            artworkOffset.animateTo(
+                                                                targetValue = 0f,
+                                                                animationSpec = tween(180)
+                                                            )
+                                                        }
                                                     }
+
+                                                    artworkDragAmount = 0f
+                                                    artworkSwipeDirection = 0
                                                 }
-                                            )
-                                        }
-                                        .clickable {
-                                            musicPlayer.togglePlayPause()
-                                        }
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.size(48.dp))
-                        Box(
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = metadata.title ?: "Unknown",
-                                    textAlign = TextAlign.Center,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                            },
+                                            onDragCancel = {
+                                                artworkScope.launch {
+                                                    artworkDragAmount = 0f
 
-                                Text(
-                                    text = metadata.artist ?: "Unknown",
-                                    textAlign = TextAlign.Center,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
+                                                    artworkOffset.animateTo(
+                                                        targetValue = 0f,
+                                                        animationSpec = tween(180)
+                                                    )
 
-                                Text(
-                                    text = metadata.album ?: "Unknown",
-                                    textAlign = TextAlign.Center,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                )
-                            }
-
-                            IconButton(
-                                onClick = {
-                                    musicPlayer.toggleRepeatMode()
-                                },
-                                modifier = Modifier.align(Alignment.CenterEnd)
-                            ) {
-                                Icon(
-                                    imageVector = if (
-                                        repeatMode == Player.REPEAT_MODE_ONE
-                                    ) {
-                                        Icons.Default.RepeatOne
-                                    } else {
-                                        Icons.Default.Repeat
-                                    },
-                                    contentDescription = if (
-                                        repeatMode == Player.REPEAT_MODE_ONE
-                                    ) {
-                                        "Repeat track"
-                                    } else {
-                                        "Repeat queue"
+                                                    artworkSwipeDirection = 0
+                                                }
+                                            }
+                                        )
                                     }
-                                )
-                            }
+                                    .clickable {
+                                        musicPlayer.togglePlayPause()
+                                    }
+                            )
                         }
 
-                        Spacer(modifier = Modifier.size(28.dp))
+                    } else {
+
+                        Box(
+                            modifier = Modifier
+                                .size(400.dp)
+                                .offset(y = (-38).dp)
+                                .clickable {
+                                    musicPlayer.playCurrentQueue(queueSongs)
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "▶",
+                                fontSize = 64.sp
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.size(48.dp))
+
+                    Box(
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Row(
-                            modifier = Modifier.width(400.dp),
+                            modifier = Modifier
+                                .size(width = 34.dp, height = 28.dp)
+                                .align(Alignment.CenterStart),
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = formatTime(currentPosition),
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.width(42.dp)
+                            val barTransition = rememberInfiniteTransition(
+                                label = "music bars"
                             )
 
-                            Spacer(modifier = Modifier.width(6.dp))
-
-                            Slider(
-                                value = progress,
-                                onValueChange = { newProgress ->
-                                    val newPosition =
-                                        (newProgress * totalDuration.toFloat()).toLong()
-
-                                    currentPosition = newPosition
-                                    musicPlayer.seekTo(newPosition)
-                                },
-                                valueRange = 0f..1f,
-                                modifier = Modifier.weight(1f),
-                                thumb = {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(14.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primary)
-                                    )
-                                },
-                                track = { sliderState ->
-                                    SliderDefaults.Track(
-                                        sliderState = sliderState,
-                                        modifier = Modifier.height(4.dp)
-                                    )
-                                }
+                            val bar1 by barTransition.animateFloat(
+                                initialValue = 0.25f,
+                                targetValue = 1f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(700),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "bar 1"
                             )
 
-                            Spacer(modifier = Modifier.width(6.dp))
+                            val bar2 by barTransition.animateFloat(
+                                initialValue = 0.45f,
+                                targetValue = 1f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(600),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "bar 2"
+                            )
+
+                            val bar3 by barTransition.animateFloat(
+                                initialValue = 0.3f,
+                                targetValue = 0.9f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(800),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "bar 3"
+                            )
+
+                            val bar4 by barTransition.animateFloat(
+                                initialValue = 0.4f,
+                                targetValue = 1f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(650),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "bar 4"
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .size(width = 34.dp, height = 28.dp),
+                                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ){
+                                Box(
+                                    modifier = Modifier
+                                        .width(4.dp)
+                                        .height(if (isPlaying) (24 * bar1).dp else 5.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(MaterialTheme.colorScheme.onSurface)
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .width(4.dp)
+                                        .height(if (isPlaying) (28 * bar2).dp else 5.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(MaterialTheme.colorScheme.onSurface)
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .width(4.dp)
+                                        .height(if (isPlaying) (22 * bar3).dp else 5.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(MaterialTheme.colorScheme.onSurface)
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .width(4.dp)
+                                        .height(if (isPlaying) (26 * bar4).dp else 5.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(MaterialTheme.colorScheme.onSurface)
+                                )
+                            }
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 48.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = selectedMetadata?.title ?: "Unknown",
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
 
                             Text(
-                                text = formatTime(totalDuration),
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.width(42.dp),
-                                textAlign = TextAlign.End
+                                text = selectedMetadata?.artist ?: "Unknown",
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+
+                            Text(
+                                text = selectedMetadata?.album ?: "Unknown",
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.bodyMedium,
                             )
                         }
+
+                        IconButton(
+                            onClick = {
+                                musicPlayer.toggleRepeatMode()
+                            },
+                            modifier = Modifier.align(Alignment.CenterEnd)
+                        ) {
+                            Icon(
+                                imageVector = if (
+                                    repeatMode == Player.REPEAT_MODE_ONE
+                                ) {
+                                    Icons.Default.RepeatOne
+                                } else {
+                                    Icons.Default.Repeat
+                                },
+                                contentDescription = if (
+                                    repeatMode == Player.REPEAT_MODE_ONE
+                                ) {
+                                    "Repeat track"
+                                } else {
+                                    "Repeat queue"
+                                }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.size(28.dp))
+                    Row(
+                        modifier = Modifier.width(400.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = formatTime(currentPosition),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.width(42.dp)
+                        )
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Slider(
+                            value = progress,
+                            onValueChange = { newProgress ->
+                                val newPosition =
+                                    (newProgress * totalDuration.toFloat()).toLong()
+
+                                currentPosition = newPosition
+                                musicPlayer.seekTo(newPosition)
+                            },
+                            valueRange = 0f..1f,
+                            modifier = Modifier.weight(1f),
+                            thumb = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(14.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary)
+                                )
+                            },
+                            track = { sliderState ->
+                                SliderDefaults.Track(
+                                    sliderState = sliderState,
+                                    modifier = Modifier.height(4.dp)
+                                )
+                            }
+                        )
+
+                        Spacer(modifier = Modifier.width(6.dp))
+
+                        Text(
+                            text = formatTime(totalDuration),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.width(42.dp),
+                            textAlign = TextAlign.End
+                        )
                     }
                 }
             }
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
+
+        if (selectedTab == 3) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Albums coming soon")
+            }
+        }
+
+        if (selectedTab == 4) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Artists coming soon")
+            }
+        }
+
+        if (selectedTab == 5) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Queue coming soon")
+            }
+        }
+
+        NavigationBar(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(94.dp),
+            tonalElevation = 0.dp
         ) {
-            Button(
+            NavigationBarItem(
+                selected = selectedTab == 0,
                 onClick = {
                     selectedTab = 0
+                },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Play"
+                    )
+                },
+                label = {
+                    Text("Play")
                 }
-            ) {
-                Text("Play")
-            }
+            )
 
-            Button(
+            NavigationBarItem(
+                selected = selectedTab == 1,
                 onClick = {
                     if (selectedTab == 1 && selectedFolder != null) {
                         folderHistory = listOf(selectedFolder!!)
@@ -1023,20 +1257,93 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                     } else {
                         selectedTab = 1
                     }
+                },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Folder,
+                        contentDescription = "Library"
+                    )
+                },
+                label = {
+                    Text("Lib")
                 }
-            ) {
-                Text("Lib")
-            }
-            Button(
+            )
+
+            NavigationBarItem(
+                selected = selectedTab == 3,
+                onClick = {
+                    selectedTab = 3
+                },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Album,
+                        contentDescription = "Albums"
+                    )
+                },
+                label = {
+                    Text("Albums")
+                }
+            )
+
+            NavigationBarItem(
+                selected = selectedTab == 4,
+                onClick = {
+                    selectedTab = 4
+                },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.People,
+                        contentDescription = "Artists"
+                    )
+                },
+                label = {
+                    Text("Artists")
+                }
+            )
+
+            NavigationBarItem(
+                selected = selectedTab == 2,
                 onClick = {
                     selectedTab = 2
+                },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Settings"
+                    )
+                },
+                label = {
+                    Text("Set")
                 }
-            ) {
-                Text("Set")
-            }
-            Text("Queue: ${queueSongs.size}")
+            )
+
+            NavigationBarItem(
+                selected = selectedTab == 5,
+                onClick = {
+                    selectedTab = 5
+                },
+                icon = {
+                    BadgedBox(
+                        badge = {
+                            if (queueSongs.isNotEmpty()) {
+                                Badge {
+                                    Text(queueSongs.size.toString())
+                                }
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.QueueMusic,
+                            contentDescription = "Queue"
+                        )
+                    }
+                },
+                label = {
+                    Text("Queue")
+                }
+            )
         }
 
-    }
+}
 }
 
