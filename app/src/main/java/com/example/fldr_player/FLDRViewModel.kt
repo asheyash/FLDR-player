@@ -75,14 +75,47 @@ class FLDRViewModel(application: Application) : AndroidViewModel(application) {
     fun clearQueue() {
         playbackQueue.clear()
     }
+
+    private suspend fun sortSongsByAlbumAndTrack(
+        files: List<AudioFile>
+    ): List<AudioFile> {
+        val songsWithMetadata = files.map { audioFile ->
+            val metadata = metadataReader.read(audioFile.uri)
+
+            audioFile to metadata
+        }
+
+        return songsWithMetadata
+            .groupBy { (_, metadata) ->
+                metadata.albumArtist.orEmpty() to metadata.album.orEmpty()
+            }
+            .toList()
+            .sortedBy { (albumKey, _) ->
+                albumKey.first + albumKey.second
+            }
+            .flatMap { (_, albumSongs) ->
+                albumSongs.sortedWith(
+                    compareBy<Pair<AudioFile, TrackMetadata>> {
+                        it.second.discNumber ?: Int.MAX_VALUE
+                    }.thenBy {
+                        it.second.trackNumber ?: Int.MAX_VALUE
+                    }
+                )
+            }
+            .map { (audioFile, _) ->
+                audioFile
+            }
+    }
+
     fun addFolderToQueue(
         uri: String,
         onComplete: () -> Unit = {}
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val files = scanner.scanSongsRecursively(uri)
+            val sortedFiles = sortSongsByAlbumAndTrack(files)
 
-            playbackQueue.addSongs(files)
+            playbackQueue.addSongs(sortedFiles)
 
             withContext(Dispatchers.Main) {
                 onComplete()
@@ -95,12 +128,13 @@ class FLDRViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val files = scanner.scanSongs(uri)
+            val sortedFiles = sortSongsByAlbumAndTrack(files)
 
             playbackQueue.clear()
-            playbackQueue.addSongs(files)
+            playbackQueue.addSongs(sortedFiles)
 
             withContext(Dispatchers.Main) {
-                onComplete(files)
+                onComplete(sortedFiles)
             }
         }
     }
@@ -110,12 +144,13 @@ class FLDRViewModel(application: Application) : AndroidViewModel(application) {
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             val files = scanner.scanSongsRecursively(uri)
+            val sortedFiles = sortSongsByAlbumAndTrack(files)
 
             playbackQueue.clear()
-            playbackQueue.addSongs(files)
+            playbackQueue.addSongs(sortedFiles)
 
             withContext(Dispatchers.Main) {
-                onComplete(files)
+                onComplete(sortedFiles)
             }
         }
     }
