@@ -37,6 +37,7 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
@@ -54,5 +55,6 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.11.1")
     //noinspection UseTomlInstead
     implementation("androidx.media3:media3-common:1.11.1")
+    implementation("androidx.media3:media3-session:1.8.0")
 
 }

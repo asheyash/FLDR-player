@@ -2,62 +2,116 @@ package com.example.fldr_player
 
 import android.content.Context
 import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.Player
+import androidx.media3.session.MediaController
 
 class MusicPlayer(context: Context) {
 
-    private val player = ExoPlayer.Builder(context).build()
+    private val playbackController = PlaybackController(context)
 
-    fun play(uri: String) {
-        val mediaItem = MediaItem.fromUri(uri)
+    private var player: MediaController? = null
 
-        player.setMediaItem(mediaItem)
-        player.prepare()
-        player.play()
+    private fun getPlayerOrNull(): MediaController? {
+        if (player == null) {
+            player = playbackController.getController()
+        }
+
+        return player
+    }
+
+    fun playQueue(
+        audioFiles: List<AudioFile>,
+        selectedIndex: Int
+    ) {
+        val controller = getPlayerOrNull() ?: return
+
+        val mediaItems = audioFiles.map { audioFile ->
+            MediaItem.fromUri(audioFile.uri)
+        }
+
+        controller.setMediaItems(
+            mediaItems,
+            selectedIndex,
+            0L
+        )
+
+        controller.repeatMode = Player.REPEAT_MODE_ALL
+
+        controller.prepare()
+        controller.play()
     }
 
     fun togglePlayPause() {
-        if (player.isPlaying) {
-            player.pause()
+        val controller = getPlayerOrNull() ?: return
+
+        if (controller.isPlaying) {
+            controller.pause()
         } else {
-            player.play()
+            controller.play()
         }
     }
 
     fun getCurrentPosition(): Long {
-        return player.currentPosition
+        return getPlayerOrNull()?.currentPosition ?: 0L
     }
 
     fun getDuration(): Long {
-        return player.duration.coerceAtLeast(0L)
+        return getPlayerOrNull()?.duration?.coerceAtLeast(0L) ?: 0L
     }
 
     fun seekTo(position: Long) {
-        player.seekTo(position)
+        getPlayerOrNull()?.seekTo(position)
     }
 
-    fun getPlayer(): Player {
-        return player
+    fun getPlayer(): Player? {
+        return getPlayerOrNull()
     }
 
     fun pause() {
-        player.pause()
+        getPlayerOrNull()?.pause()
     }
 
     fun resume() {
-        player.play()
+        getPlayerOrNull()?.play()
     }
 
     fun stop() {
-        player.stop()
+        getPlayerOrNull()?.stop()
+    }
+
+    fun getRepeatMode(): Int {
+        return getPlayerOrNull()?.repeatMode
+            ?: Player.REPEAT_MODE_ALL
+    }
+
+    fun toggleRepeatMode() {
+        val controller = getPlayerOrNull() ?: return
+
+        controller.repeatMode =
+            if (controller.repeatMode == Player.REPEAT_MODE_ALL) {
+                Player.REPEAT_MODE_ONE
+            } else {
+                Player.REPEAT_MODE_ALL
+            }
     }
 
     fun release() {
-        player.release()
+        playbackController.release()
     }
 
     fun isPlaying(): Boolean {
-        return player.isPlaying
+        return getPlayerOrNull()?.isPlaying ?: false
+    }
+
+    fun getCurrentMediaItemIndex(): Int {
+        return getPlayerOrNull()?.currentMediaItemIndex ?: -1
+    }
+
+    fun skipToNext() {
+        getPlayerOrNull()?.seekToNextMediaItem()
+    }
+
+    fun skipToPrevious() {
+        getPlayerOrNull()?.seekToPreviousMediaItem()
     }
 }

@@ -59,11 +59,22 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.IconButton
-
-
-
-
+import androidx.compose.runtime.collectAsState
+import androidx.compose.material3.Icon
+import androidx.media3.common.Player
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.abs
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 fun formatTime(milliseconds: Long): String {
     val totalSeconds = milliseconds / 1000
@@ -306,6 +317,7 @@ fun FLDRHome(modifier: Modifier = Modifier) {
 
     val context = LocalContext.current
     val viewModel: FLDRViewModel = viewModel()
+    val queueSongs by viewModel.queueSongs.collectAsState()
 
 
     var selectedFolder by remember {
@@ -324,9 +336,34 @@ fun FLDRHome(modifier: Modifier = Modifier) {
         mutableStateOf<AudioFile?>(null)
     }
 
+    val artworkOffset = remember {
+        Animatable(0f)
+    }
+    var artworkIncomingOffset by remember {
+        mutableStateOf(300f)
+    }
+
+    var artworkSwipeDirection by remember {
+        mutableStateOf(0)
+    }
+
+    var artworkDragAmount by remember {
+        mutableStateOf(0f)
+    }
+
     var selectedTab by remember {
         mutableStateOf(0)
     }
+
+    var repeatMode by remember {
+        mutableStateOf(Player.REPEAT_MODE_ALL)
+    }
+
+    var artworkWaitingForNewSong by remember {
+        mutableStateOf(false)
+    }
+
+    val artworkScope = rememberCoroutineScope()
 
     var songMetadata by remember {
         mutableStateOf<Map<String, TrackMetadata>>(emptyMap())
@@ -342,6 +379,7 @@ fun FLDRHome(modifier: Modifier = Modifier) {
 
     var currentPosition by remember { mutableStateOf(0L) }
     var totalDuration by remember { mutableStateOf(0L) }
+    var lastQueueIndex by remember { mutableStateOf(-1) }
 
     val progress =
         if (totalDuration > 0L) {
@@ -364,12 +402,43 @@ fun FLDRHome(modifier: Modifier = Modifier) {
         MusicPlayer(context)
     }
 
-    LaunchedEffect(selectedAudioFile?.uri) {
+    LaunchedEffect(queueSongs) {
         while (true) {
             currentPosition = musicPlayer.getCurrentPosition()
             totalDuration = musicPlayer.getDuration()
+            repeatMode = musicPlayer.getRepeatMode()
+
+            val currentIndex = musicPlayer.getCurrentMediaItemIndex()
+
+            if (
+                currentIndex != -1 &&
+                currentIndex != lastQueueIndex &&
+                currentIndex < queueSongs.size
+            ) {
+                lastQueueIndex = currentIndex
+
+                val currentAudioFile = queueSongs[currentIndex]
+
+                selectedAudioFile = currentAudioFile
+
+                viewModel.readMetadata(currentAudioFile) { metadata ->
+                    selectedMetadata = metadata
+                }
+            }
 
             delay(500)
+        }
+    }
+    LaunchedEffect(selectedAudioFile?.uri) {
+        if (artworkWaitingForNewSong && selectedAudioFile != null) {
+            artworkOffset.snapTo(artworkIncomingOffset)
+
+            artworkOffset.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(220)
+            )
+
+            artworkWaitingForNewSong = false
         }
     }
 
@@ -572,44 +641,46 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                                 modifier = Modifier.weight(1f)
                             )
 
-                            IconButton(
-                                onClick = {
-                                    folderMenuOpen = true
+                            Box {
+                                IconButton(
+                                    onClick = {
+                                        folderMenuOpen = true
+                                    }
+                                ) {
+                                    Text("⋮")
                                 }
-                            ) {
-                                Text("⋮")
+
+                                DropdownMenu(
+                                    expanded = folderMenuOpen,
+                                    onDismissRequest = {
+                                        folderMenuOpen = false
+                                    }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("Add to current queue")
+                                        },
+                                        onClick = {
+                                            folderMenuOpen = false
+
+                                            viewModel.addFolderToQueue(folder.uri)
+                                        }
+                                    )
+
+                                    DropdownMenuItem(
+                                        text = { Text("Add to new queue") },
+                                        onClick = {
+                                            folderMenuOpen = false
+
+                                            viewModel.replaceQueueWithFolderRecursively(
+                                                uri = folder.uri
+                                            ) {
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
-
-                        DropdownMenu(
-                            expanded = folderMenuOpen,
-                            onDismissRequest = {
-                                folderMenuOpen = false
-                            }
-                        ) {
-                            DropdownMenuItem(
-                                text = {
-                                    Text("Add to current queue")
-                                },
-                                onClick = {
-                                    folderMenuOpen = false
-
-                                    // Folder queue logic will go here
-                                }
-                            )
-
-                            DropdownMenuItem(
-                                text = {
-                                    Text("Add to new queue")
-                                },
-                                onClick = {
-                                    folderMenuOpen = false
-
-                                    // Folder queue logic will go here
-                                }
-                            )
-                        }
-
                         HorizontalDivider()
                     }
 
@@ -647,20 +718,42 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                                 audioFile = audioFile,
                                 viewModel = viewModel,
                                 onClick = {
-                                    selectedAudioFile = audioFile
-                                    musicPlayer.play(audioFile.uri)
+                                    viewModel.replaceQueueWithFolder(
+                                        uri = currentFolder ?: return@SongRow
+                                    ) { folderSongs ->
 
-                                    viewModel.readMetadata(audioFile) { metadata ->
-                                        selectedMetadata = metadata
+                                        val selectedIndex = folderSongs.indexOfFirst {
+                                            it.uri == audioFile.uri
+                                        }
+
+                                        if (selectedIndex != -1) {
+                                            selectedAudioFile = audioFile
+
+                                            musicPlayer.playQueue(
+                                                audioFiles = folderSongs,
+                                                selectedIndex = selectedIndex
+                                            )
+
+                                            viewModel.readMetadata(audioFile) { metadata ->
+                                                selectedMetadata = metadata
+                                            }
+
+                                            selectedTab = 0
+                                        }
                                     }
-
-                                    selectedTab = 0
                                 },
                                 onAddToCurrentQueue = {
-                                    // Queue logic will go here
+                                    viewModel.addToQueue(audioFile)
                                 },
                                 onAddToNewQueue = {
-                                    // Queue logic will go here
+                                    val folderUri = currentFolder
+
+                                    if (folderUri != null) {
+                                        viewModel.replaceQueueWithFolder(
+                                            uri = folderUri
+                                        ) {
+                                        }
+                                    }
                                 }
                             )
                         }
@@ -721,32 +814,137 @@ fun FLDRHome(modifier: Modifier = Modifier) {
                                     modifier = Modifier
                                         .size(400.dp)
                                         .offset(y = (-38).dp)
-                                        .clickable{
+                                        .offset {
+                                            IntOffset(
+                                                x = artworkOffset.value.roundToInt(),
+                                                y = 0
+                                            )
+                                        }
+                                        .pointerInput(Unit) {
+                                            detectHorizontalDragGestures(
+                                                onHorizontalDrag = { _, dragAmount ->
+                                                    artworkDragAmount += dragAmount
+
+                                                    artworkSwipeDirection =
+                                                        if (artworkDragAmount < 0f) -1 else 1
+
+                                                    artworkScope.launch {
+                                                        artworkOffset.snapTo(
+                                                            artworkDragAmount.coerceIn(-30f, 30f)
+                                                        )
+                                                    }
+                                                },
+                                                onDragEnd = {
+                                                    artworkScope.launch {
+                                                        when {
+                                                            artworkDragAmount < -100f -> {
+                                                                artworkSwipeDirection = -1
+
+                                                                artworkOffset.animateTo(
+                                                                    targetValue = -30f,
+                                                                    animationSpec = tween(180)
+                                                                )
+
+                                                                artworkWaitingForNewSong = true
+                                                                musicPlayer.skipToNext()
+                                                            }
+
+                                                            artworkDragAmount > 100f -> {
+                                                                artworkSwipeDirection = 1
+
+                                                                artworkOffset.animateTo(
+                                                                    targetValue = 30f,
+                                                                    animationSpec = tween(180)
+                                                                )
+
+                                                                artworkWaitingForNewSong = true
+                                                                musicPlayer.skipToPrevious()
+                                                            }
+
+                                                            else -> {
+                                                                artworkOffset.animateTo(
+                                                                    targetValue = 0f,
+                                                                    animationSpec = tween(180)
+                                                                )
+                                                            }
+                                                        }
+
+                                                        artworkDragAmount = 0f
+                                                        artworkSwipeDirection = 0
+                                                    }
+                                                },
+                                                onDragCancel = {
+                                                    artworkScope.launch {
+                                                        artworkDragAmount = 0f
+
+                                                        artworkOffset.animateTo(
+                                                            targetValue = 0f,
+                                                            animationSpec = tween(180)
+                                                        )
+
+                                                        artworkSwipeDirection = 0
+                                                    }
+                                                }
+                                            )
+                                        }
+                                        .clickable {
                                             musicPlayer.togglePlayPause()
                                         }
                                 )
                             }
                         }
                         Spacer(modifier = Modifier.size(48.dp))
-                        Text(
-                            text = metadata.title ?: "Unknown",
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = metadata.artist ?: "Unknown",
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(
-                            text = metadata.album ?: "Unknown",
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
+                        Box(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = metadata.title ?: "Unknown",
+                                    textAlign = TextAlign.Center,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+
+                                Text(
+                                    text = metadata.artist ?: "Unknown",
+                                    textAlign = TextAlign.Center,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+
+                                Text(
+                                    text = metadata.album ?: "Unknown",
+                                    textAlign = TextAlign.Center,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    musicPlayer.toggleRepeatMode()
+                                },
+                                modifier = Modifier.align(Alignment.CenterEnd)
+                            ) {
+                                Icon(
+                                    imageVector = if (
+                                        repeatMode == Player.REPEAT_MODE_ONE
+                                    ) {
+                                        Icons.Default.RepeatOne
+                                    } else {
+                                        Icons.Default.Repeat
+                                    },
+                                    contentDescription = if (
+                                        repeatMode == Player.REPEAT_MODE_ONE
+                                    ) {
+                                        "Repeat track"
+                                    } else {
+                                        "Repeat queue"
+                                    }
+                                )
+                            }
+                        }
 
                         Spacer(modifier = Modifier.size(28.dp))
                         Row(
@@ -836,6 +1034,7 @@ fun FLDRHome(modifier: Modifier = Modifier) {
             ) {
                 Text("Set")
             }
+            Text("Queue: ${queueSongs.size}")
         }
 
     }

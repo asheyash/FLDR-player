@@ -61,6 +61,36 @@ class MusicScanner(private val context: Context) {
 
         return results
     }
+
+    fun scanSongsRecursively(uriString: String): List<AudioFile> {
+        val root = getDocumentFile(uriString)
+            ?: return emptyList()
+
+        val results = mutableListOf<AudioFile>()
+
+        fun scanFolder(folder: DocumentFile) {
+            for (file in folder.listFiles()) {
+                val name = file.name ?: continue
+
+                if (file.isDirectory) {
+                    if (!name.startsWith(".")) {
+                        scanFolder(file)
+                    }
+                } else if (file.isFile && isAudioFile(file)) {
+                    results.add(
+                        AudioFile(
+                            name = name,
+                            uri = file.uri.toString()
+                        )
+                    )
+                }
+            }
+        }
+
+        scanFolder(root)
+
+        return results
+    }
     private fun getDocumentFile(uriString: String): DocumentFile? {
         val uri = uriString.toUri()
 
