@@ -27,11 +27,17 @@ class PlaybackQueue {
         _songs.value = emptyList()
     }
 
+
+
     fun getSongs(): List<AudioFile> {
         return _songs.value
     }
 
     fun isEmpty(): Boolean {
         return _songs.value.isEmpty()
+    }
+
+    fun restoreSongs(audioFiles: List<AudioFile>) {
+        _songs.value = audioFiles
     }
 }

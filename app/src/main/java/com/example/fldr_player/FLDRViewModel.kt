@@ -76,6 +76,10 @@ class FLDRViewModel(application: Application) : AndroidViewModel(application) {
         playbackQueue.clear()
     }
 
+    fun restoreQueue(audioFiles: List<AudioFile>) {
+        playbackQueue.restoreSongs(audioFiles)
+    }
+
     private suspend fun sortSongsByAlbumAndTrack(
         files: List<AudioFile>
     ): List<AudioFile> {

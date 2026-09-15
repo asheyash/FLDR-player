@@ -97,6 +97,9 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
 
 
 
@@ -335,6 +338,10 @@ fun SongSkeletonRow() {
     HorizontalDivider()
 }
 
+
+private const val PREFS_NAME = "fldr_preferences"
+private const val SAVED_QUEUE = "saved_queue"
+private const val MUSIC_FOLDER_URI = "music_folder_uri"
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FLDRHome(modifier: Modifier = Modifier) {
@@ -343,10 +350,9 @@ fun FLDRHome(modifier: Modifier = Modifier) {
     val viewModel: FLDRViewModel = viewModel()
     val queueSongs by viewModel.queueSongs.collectAsState()
 
-
-    var selectedFolder by remember {
-        mutableStateOf<String?>(null)
-    }
+//    var selectedFolder by remember {
+//        mutableStateOf<String?>(null)
+//    }
 
     var audioFiles by remember {
         mutableStateOf<List<AudioFile>>(emptyList())
@@ -430,7 +436,68 @@ fun FLDRHome(modifier: Modifier = Modifier) {
         MusicPlayer(context)
     }
 
+    val preferences = remember {
+        context.getSharedPreferences(
+            PREFS_NAME,
+            Context.MODE_PRIVATE
+        )
+    }
+
+    fun saveQueue(audioFiles: List<AudioFile>) {
+        val jsonArray = JSONArray()
+
+        audioFiles.forEach { audioFile ->
+            val jsonObject = JSONObject()
+
+            jsonObject.put("name", audioFile.name)
+            jsonObject.put("uri", audioFile.uri)
+
+            jsonArray.put(jsonObject)
+        }
+
+        preferences.edit()
+            .putString(SAVED_QUEUE, jsonArray.toString())
+            .apply()
+    }
+
+    fun restoreQueue(): List<AudioFile> {
+        val savedQueue = preferences.getString(
+            SAVED_QUEUE,
+            null
+        ) ?: return emptyList()
+
+        val jsonArray = JSONArray(savedQueue)
+        val audioFiles = mutableListOf<AudioFile>()
+
+        for (index in 0 until jsonArray.length()) {
+            val jsonObject = jsonArray.getJSONObject(index)
+
+            audioFiles.add(
+                AudioFile(
+                    name = jsonObject.getString("name"),
+                    uri = jsonObject.getString("uri")
+                )
+            )
+        }
+
+        return audioFiles
+    }
+    LaunchedEffect(Unit) {
+        val savedQueue = restoreQueue()
+
+        if (savedQueue.isNotEmpty()) {
+            viewModel.restoreQueue(savedQueue)
+        }
+    }
+
+    var selectedFolder by remember {
+        mutableStateOf(
+            preferences.getString(MUSIC_FOLDER_URI, null)
+        )
+    }
+
     LaunchedEffect(queueSongs) {
+        saveQueue(queueSongs)
         musicPlayer.updateQueue(queueSongs)
     }
 
@@ -477,6 +544,8 @@ fun FLDRHome(modifier: Modifier = Modifier) {
             artworkWaitingForNewSong = false
         }
     }
+
+
 
 
 
@@ -539,6 +608,35 @@ fun FLDRHome(modifier: Modifier = Modifier) {
         }
     }
 
+    LaunchedEffect(Unit) {
+        val savedUri = preferences.getString(
+            MUSIC_FOLDER_URI,
+            null
+        ) ?: return@LaunchedEffect
+
+        val hasPermission =
+            context.contentResolver.persistedUriPermissions.any { permission ->
+                permission.uri.toString() == savedUri &&
+                        permission.isReadPermission
+            }
+
+        if (hasPermission) {
+            selectedFolder = savedUri
+            folderHistory = emptyList()
+
+            loadFolder(
+                uri = savedUri,
+                addToHistory = true
+            )
+        } else {
+            preferences.edit()
+                .remove(MUSIC_FOLDER_URI)
+                .apply()
+
+            selectedFolder = null
+        }
+    }
+
     BackHandler {
         if (
             selectedTab == 1 &&
@@ -582,15 +680,21 @@ fun FLDRHome(modifier: Modifier = Modifier) {
 
         if (uri != null) {
 
-            val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+            val takeFlags =
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
 
             context.contentResolver.takePersistableUriPermission(
                 uri,
                 takeFlags
             )
 
+            preferences.edit()
+                .putString(MUSIC_FOLDER_URI, uri.toString())
+                .apply()
+
             selectedFolder = uri.toString()
             folderHistory = emptyList()
+
             loadFolder(
                 uri.toString(),
                 addToHistory = true
