@@ -498,24 +498,23 @@ fun FLDRHome(modifier: Modifier = Modifier) {
 
     LaunchedEffect(queueSongs) {
         saveQueue(queueSongs)
-        musicPlayer.updateQueue(queueSongs)
+        //musicPlayer.updateQueue(queueSongs)
     }
 
-    LaunchedEffect(queueSongs) {
+    LaunchedEffect(Unit) {
         while (true) {
             currentPosition = musicPlayer.getCurrentPosition()
             totalDuration = musicPlayer.getDuration()
             repeatMode = musicPlayer.getRepeatMode()
             isPlaying = musicPlayer.isPlaying()
 
-            val currentIndex = musicPlayer.getCurrentMediaItemIndex()
             val currentUri = musicPlayer.getCurrentMediaItemUri()
 
             if (
                 currentUri != null &&
                 currentUri != selectedAudioFile?.uri
             ) {
-                val currentAudioFile = queueSongs.firstOrNull {
+                val currentAudioFile = viewModel.queueSongs.value.firstOrNull {
                     it.uri == currentUri
                 }
 
@@ -1301,7 +1300,9 @@ fun FLDRHome(modifier: Modifier = Modifier) {
 
         if (selectedTab == 3) {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
                 Text("Albums coming soon")
@@ -1310,7 +1311,9 @@ fun FLDRHome(modifier: Modifier = Modifier) {
 
         if (selectedTab == 4) {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
                 Text("Artists coming soon")
@@ -1319,7 +1322,9 @@ fun FLDRHome(modifier: Modifier = Modifier) {
 
         if (selectedTab == 5) {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
                 contentAlignment = Alignment.Center
             ) {
                 Text("Queue coming soon")

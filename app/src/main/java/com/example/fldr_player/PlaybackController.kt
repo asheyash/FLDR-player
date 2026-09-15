@@ -26,11 +26,15 @@ class PlaybackController(context: Context) {
     }
 
     fun getController(): MediaController? {
-        if (!controllerFuture.isDone) {
+        if (!controllerFuture.isDone || controllerFuture.isCancelled) {
             return null
         }
 
-        return controllerFuture.get()
+        return try {
+            controllerFuture.get()
+        } catch (e: Exception) {
+            null
+        }
     }
 
     fun release() {
